@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <uuid/uuid.h>
 
 #define BUFFER_SIZE	1024
 
@@ -16,6 +17,9 @@ int main(int argc, char *argv[]) {
 	int server_port=80, max_conn_backlog=10;
 	u_int32_t server_ip=INADDR_ANY;
 	struct sockaddr_in client_addr;
+	socklen_t client_addr_len;
+	uuid_t uuid;
+	char uuid_str[37];
 
 	// TODO Managed the arguments 
 
@@ -69,25 +73,29 @@ int main(int argc, char *argv[]) {
 	printf("Enter in the infinit loop for clients connection\n");
 	while (1){
 		printf("Waiting for a client to connect...\n");
-		// TODO Generate a random ID for each client 
 		printf("Accept the connexion from the ID client\n");
-		client_accepted = accept(server_socket_fd, (struct sockaddr *) &client_addr, &client_addr);
+		client_accepted = accept(server_socket_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if(client_accepted == -1){
 			printf("The ID client cannot be connected: %s \n", strerror(errno));
 			return 1;
 		}
 
+		// Generate a random UID for each client 
+		uuid_generate_random(uuid);
+		uuid_unparse_lower(uuid, uuid_str);
+
+		printf("The cliend UUID : %s\n", uuid_str);
+
 		// TODO Verification of the header 
+		// TODO Verification of the API Key or Bear Token header
 
 		printf("The ID client is successefuly connected\n");
 		
-		// TODO Treat the client in a Thread
-
-		// TODO Treat the command of the client according to the methode of his command
+		// TODO Treat the client in a Thread according to the methode of his command
 
 		printf("Close the IPv4 socket after to treat the client command!\n");
-		int close_socket = close(server_socket_fd);
-		if(close_socket == -1){
+		int close_client_accepted_socket = close(client_accepted);
+		if(close_client_accepted_socket == -1){
 			printf("The close of the IPv4 socket failed: %s \n", strerror(errno));
 			exit(1);
 		}
@@ -95,6 +103,15 @@ int main(int argc, char *argv[]) {
 		printf("The IPv4 socket for ID client is successefuly closed\n");
 		
 	}
+
+	printf("Close the socket!\n");
+	int close_socket = close(server_socket_fd);
+	if(close_socket == -1){
+		printf("The close socket failed: %s \n", strerror(errno));
+		exit(1);
+	}
+		
+	printf("The server end life\n");
 
 	return 0;
 }

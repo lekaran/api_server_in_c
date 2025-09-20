@@ -16,7 +16,7 @@ add_executable(api_server
 
 target_compile_options(api_server
   PRIVATE
-    "-Wall" "-Wextra" "-pedantic" "-g" "-O2"
+    "-Wall" "-Wextra" "-pedantic" "-g" "-O2" "-luuid"
 )
 
 set_target_properties(api_server
