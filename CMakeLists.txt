@@ -11,7 +11,9 @@ project(API
 )
 
 add_executable(api_server
-  src/main.c
+  main.c
+  dotenv/dotenv.c
+  middleware/auth.c
 )
 
 target_compile_options(api_server
