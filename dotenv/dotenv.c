@@ -49,9 +49,6 @@ int load_env_file(const char *filename){
             *newValue='\0';
         }
 
-        printf("KEY : %s\n",key);
-        printf("value : %s\n",value);
-
         int load_env = setenv(key, value, 1);
         if(load_env == -1){
             printf("There are a problem when the program try to load the env variable : %s \n", strerror(errno));

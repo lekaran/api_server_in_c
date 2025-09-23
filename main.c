@@ -15,6 +15,7 @@
 #include "middleware/auth.h"
 
 int main(int argc, char *argv[]) {
+	printf("Load the env variables : \n");
 	int load_env = load_env_file("../.env"); // the file isn't in the same directory that dotenv module.
 	if(load_env != 0){
 		printf("There is problem when the program try to load the env file!\n");
@@ -43,8 +44,16 @@ int main(int argc, char *argv[]) {
 		printf("The IPv4 socket creation failed: %s...\n", strerror(errno));
 		// TODO Managed the error code of the server
 		exit(2);
-	}else{
-		printf("The IPv4 socket creation sucess!\n");
+	}
+		
+	printf("The IPv4 socket creation sucess!\n");
+
+	// when we develop we use the same port so we have some trouble for using always the same port. 
+	// With this function (setsocketopt()) we can reusse the same port properly
+	int reuse = 1;
+	if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
+		printf("SO_REUSEADDR failed: %s \n", strerror(errno));
+		exit(3);
 	}
 	
 	// TODO Make the server support IPv6 (idea : dual socket()
