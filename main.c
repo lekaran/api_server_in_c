@@ -7,12 +7,18 @@
 #include <string.h>
 #include <errno.h>
 #include <string.h>
+#include <signal.h>
 #include <uuid/uuid.h>
 
 // My module
 #include "main.h"
 #include "dotenv/dotenv.h"
 #include "middleware/auth.h"
+
+// Hundler of the Signal SIGINT
+void handleSIGINT(int sig) {
+	should_quit = 1;
+}
 
 int main(int argc, char *argv[]) {
 	printf("Load the env variables : \n");
@@ -28,6 +34,7 @@ int main(int argc, char *argv[]) {
 	int max_conn_backlog=10;
 	u_int32_t server_ip=INADDR_ANY;
 	struct sockaddr_in client_addr;
+	struct sigaction action;
 	socklen_t client_addr_len;
 	uuid_t uuid;
 	char uuid_str[37];
@@ -57,14 +64,6 @@ int main(int argc, char *argv[]) {
 	}
 	
 	// TODO Make the server support IPv6 (idea : dual socket()
-
-	// Since the tester restarts your program quite often, setting REUSE_PORT
-	// ensures that we don't run into 'Address already in use' errors
-	// int reuse = 1;
-	// if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-	// 	printf("SO_REUSEADDR failed: %s \n", strerror(errno));
-	// 	return 1;
-	// }
 	
 	printf("Define the structure who managed the IPv4 connexion!\n");
 	// TODO il faut laisser l'utilisateur choisir le port 
@@ -78,27 +77,48 @@ int main(int argc, char *argv[]) {
 	server_bind = bind(server_socket_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if (server_bind != 0) {
 		printf("Failed to bind the IPv4 socket to server_ip and server_port : %s \n", strerror(errno));
-		exit(3);
-	}else{
-		printf("Success to bind the IPv4 socket to erver_ip and server_port\n");
+		exit(4);
 	}
+	
+	printf("Success to bind the IPv4 socket to erver_ip and server_port\n");
 	
 	printf("Listen the the IPv4 socket\n");
 	server_listen = listen(server_socket_fd, max_conn_backlog);
 	if (server_listen != 0) {
 		printf("Listen the IPv4 socket failed: %s \n", strerror(errno));
-		exit(4);
-	}else{
-		printf("Success to listen the IPv4 socket\n");
+		exit(5);
 	}
+	
+	printf("Success to listen the IPv4 socket\n");
+
+	//init the mutex
+	
+	// when receve the signal SIGINT close properly the socket
+	action.sa_handler = handleSIGINT;
+    sigemptyset(&action.sa_mask);
+    action.sa_flags = 0;
+
+	int sigaction_return = sigaction(SIGINT, &action, NULL);
+	if (sigaction_return == -1) {
+		printf("Error during the listing signal: %s \n", strerror(errno));
+        exit(6);
+    }
 	
 	printf("Enter in the infinit loop for clients connection\n");
 	while (true){
 		printf("Waiting for a client to connect on the port : %d !\n", server_port);
 		client_accepted = accept(server_socket_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if(client_accepted == -1){
+			if(errno == EINTR && should_quit == 1){
+				printf("Receve a signal (Ctrl+C) then close the socket!\n");
+				int close_socket = close(server_socket_fd);
+				if(close_socket == -1){
+					printf("The close socket failed: %s \n", strerror(errno));
+					exit(7);
+				}
+			}
 			printf("The ID client cannot be connected: %s \n", strerror(errno));
-			exit(5);
+			exit(7);
 		}
 
 		struct data_thread *dataToThread = malloc(sizeof(struct data_thread));
@@ -141,6 +161,17 @@ int main(int argc, char *argv[]) {
 		// TODO The client have to login from a specifique path, this login generate a token that we have to give to the client in response of the login call
 		char client_message[BUFFER_SIZE];
 		ssize_t receved_message = recv(client_accepted, client_message, BUFFER_SIZE, 0);
+		if(receved_message == -1){
+			if(errno == EINTR && should_quit == 1){
+				printf("Receve a signal (Ctrl+C) then close the socket!\n");
+				int close_socket = close(server_socket_fd);
+				if(close_socket == -1){
+					printf("The close socket failed: %s \n", strerror(errno));
+					exit(6);
+				}
+			}
+			printf("There are some trouble when receive some response : %s \n",strerror(errno));
+		}
 
 		printf("Client message length : %zd\n", receved_message);
 		printf("Client message : \n%s\n------\n", client_message);
