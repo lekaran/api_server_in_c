@@ -4,25 +4,27 @@
 #   cmake ..
 #   make
 #
-cmake_minimum_required(VERSION 4.1)
+cmake_minimum_required(VERSION 3.15)
 
-project(API
-  LANGUAGES CXX C
-)
+project(API LANGUAGES C)
 
 add_executable(api_server
   main.c
   dotenv/dotenv.c
   middleware/auth.c
+  logger/logger.c
+  http/http_parser.c
+  http/http_response.c
+  router/router.c
+
 )
 
 target_compile_options(api_server
-  PRIVATE
-    "-Wall" "-Wextra" "-pedantic" "-g" "-O2" "-luuid"
+  PRIVATE -Wall -Wextra -pedantic -g -O2
 )
 
 set_target_properties(api_server
   PROPERTIES
-    CXX_STANDARD 17
-    CXX_EXTENSIONS OFF
+    C_STANDARD 11
+    C_EXTENSIONS OFF
 )

@@ -8,12 +8,17 @@
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
+#include <stdbool.h>
 #include <uuid/uuid.h>
 
 // My module
 #include "main.h"
 #include "dotenv/dotenv.h"
 #include "middleware/auth.h"
+#include "router/router.h"
+#include "logger/logger.h"
+#include "http/http_parser.h"
+#include "http/http_response.h"
 
 // Hundler of the Signal SIGINT
 void handleSIGINT(int sig) {
@@ -21,15 +26,17 @@ void handleSIGINT(int sig) {
 }
 
 int main(int argc, char *argv[]) {
-	printf("Load the env variables : \n");
+
+	log_init(LOG_LEVEL_DEBUG, "/var/log/api_c.log");
+
+	LOG_DEBUG("Load the env variables : ");
 	int load_env = load_env_file("../.env"); // the file isn't in the same directory that dotenv module.
 	if(load_env != 0){
-		printf("There is problem when the program try to load the env file!\n");
-		exit(1);
+		LOG_ERROR("There is problem when the program try to load the env file!");
+		exit(-1);
 	}
 
-	// TODO Redirecte all log to the appropriate file (timestamp) and Manged the log level
-	printf("Init the server!\n");
+	LOG_INFO("Init the server!");
 	int server_socket_fd, server_bind, server_listen, client_accepted;
 	int max_conn_backlog=10;
 	u_int32_t server_ip=INADDR_ANY;
@@ -45,27 +52,27 @@ int main(int argc, char *argv[]) {
 	// TODO Managed the arguments 
 
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	printf("Create the IPv4 socket!\n");
+	LOG_DEBUG("Create the IPv4 socket!");
 	server_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_socket_fd == -1) {
-		printf("The IPv4 socket creation failed: %s...\n", strerror(errno));
+		LOG_ERROR("The IPv4 socket creation failed: %s...", strerror(errno));
 		// TODO Managed the error code of the server
-		exit(2);
+		exit(-1);
 	}
 		
-	printf("The IPv4 socket creation sucess!\n");
+	LOG_INFO("The IPv4 socket creation sucess!");
 
 	// when we develop we use the same port so we have some trouble for using always the same port. 
 	// With this function (setsocketopt()) we can reusse the same port properly
 	int reuse = 1;
 	if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-		printf("SO_REUSEADDR failed: %s \n", strerror(errno));
-		exit(3);
+		LOG_ERROR("SO_REUSEADDR failed: %s", strerror(errno));
+		exit(-1);
 	}
 	
 	// TODO Make the server support IPv6 (idea : dual socket()
 	
-	printf("Define the structure who managed the IPv4 connexion!\n");
+	LOG_DEBUG("Define the structure who managed the IPv4 connexion!");
 	// TODO il faut laisser l'utilisateur choisir le port 
 	struct sockaddr_in serv_addr = { 
 		.sin_family = AF_INET,
@@ -73,23 +80,23 @@ int main(int argc, char *argv[]) {
 		.sin_addr.s_addr = htonl(server_ip)
 	};
 	
-	printf("Bind the IPv4 socket to server_ip and server_port\n");
+	LOG_DEBUG("Bind the IPv4 socket to server_ip and server_port");
 	server_bind = bind(server_socket_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if (server_bind != 0) {
-		printf("Failed to bind the IPv4 socket to server_ip and server_port : %s \n", strerror(errno));
-		exit(4);
+		LOG_ERROR("Failed to bind the IPv4 socket to server_ip and server_port : %s", strerror(errno));
+		exit(-1);
 	}
 	
-	printf("Success to bind the IPv4 socket to erver_ip and server_port\n");
+	LOG_INFO("Success to bind the IPv4 socket to erver_ip and server_port");
 	
-	printf("Listen the the IPv4 socket\n");
+	LOG_DEBUG("Listen the the IPv4 socket");
 	server_listen = listen(server_socket_fd, max_conn_backlog);
 	if (server_listen != 0) {
-		printf("Listen the IPv4 socket failed: %s \n", strerror(errno));
-		exit(5);
+		LOG_ERROR("Listen the IPv4 socket failed: %s", strerror(errno));
+		exit(-1);
 	}
 	
-	printf("Success to listen the IPv4 socket\n");
+	LOG_INFO("Success to listen the IPv4 socket");
 
 	//init the mutex
 	
@@ -100,121 +107,98 @@ int main(int argc, char *argv[]) {
 
 	int sigaction_return = sigaction(SIGINT, &action, NULL);
 	if (sigaction_return == -1) {
-		printf("Error during the listing signal: %s \n", strerror(errno));
-        exit(6);
+		LOG_ERROR("Error during the listing signal: %s", strerror(errno));
+        exit(-1);
     }
 	
-	printf("Enter in the infinit loop for clients connection\n");
+	LOG_INFO("Enter in the infinit loop for clients connection");
 	while (true){
-		printf("Waiting for a client to connect on the port : %d !\n", server_port);
+		LOG_DEBUG("Waiting for a client to connect on the port : %d ", server_port);
 		client_accepted = accept(server_socket_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if(client_accepted == -1){
 			if(errno == EINTR && should_quit == 1){
-				printf("Receve a signal (Ctrl+C) then close the socket!\n");
+				LOG_INFO("Receve a signal (Ctrl+C) then close the socket!");
 				int close_socket = close(server_socket_fd);
 				if(close_socket == -1){
-					printf("The close socket failed: %s \n", strerror(errno));
-					exit(7);
+					LOG_ERROR("The close socket failed: %s ", strerror(errno));
+					exit(-1);
 				}
+				log_close();
+				exit(0);
 			}
-			printf("The ID client cannot be connected: %s \n", strerror(errno));
-			exit(7);
+			LOG_ERROR("The ID client cannot be connected: %s ", strerror(errno));
+			exit(-1);
 		}
 
 		struct data_thread *dataToThread = malloc(sizeof(struct data_thread));
 
 		free(dataToThread);
 
-		/*
-			- route de mon API 
-			- /register pour se créer un compte (PUBLIQUE)
-			- /login pour generer un Token valide (PUBLIQUE)
-			- /logout pour invalider le Token (PROTEGER)
-			- /profile pour que l'utilisateur gère son profile (PROTEGER)
-				- récupérer les infos de son profile avec GET
-				- modifier les infos de son profile avec PUT
-				- supprimer son profile avec DELETE
-
-			- Il faut que je crée une table de routage (une liste de route avec leur protection)
-				- il faut penser à faire une structure pour acceullir cela. 
-		*/
-
-		/*
-			- Je dois mettre chaque connexion dans un thread, 
-				- quand on rentre dans le threa on génère un UUID de session pour le client
-				- Vérifier son bear token (expiré ou fausse) CETTE VERIFICATION DOIT SE FAIRE À CHAQUE REQUETTE
-					- verifier si le token est bien formé
-					- verifier si le token est dans la DB
-					- verifier si le token n'est pas exipré 
-					- verifier si le token appartient bien à l'utilisateur
-		*/
-
 		// Generate a random UID for each client 
 		uuid_generate_random(uuid);
 		uuid_unparse_lower(uuid, uuid_str);
 
-		printf("The cliend ID : %s, is successefuly connected.\n", uuid_str);
+		LOG_INFO("The cliend ID : %s, is successefuly connected.", uuid_str);
 
-		// TODO Verification of the header Bear Token (authentication)
-		// TODO Verification of the API Key or Bear Token header
-		// TODO The client have to create a account 
-		// TODO The client have to login from a specifique path, this login generate a token that we have to give to the client in response of the login call
 		char client_message[BUFFER_SIZE];
 		ssize_t receved_message = recv(client_accepted, client_message, BUFFER_SIZE, 0);
 		if(receved_message == -1){
 			if(errno == EINTR && should_quit == 1){
-				printf("Receve a signal (Ctrl+C) then close the socket!\n");
+				LOG_INFO("Receve a signal (Ctrl+C) then close the socket!");
 				int close_socket = close(server_socket_fd);
 				if(close_socket == -1){
-					printf("The close socket failed: %s \n", strerror(errno));
-					exit(6);
+					LOG_ERROR("The close socket failed: %s ", strerror(errno));
+					exit(-1);
 				}
+				log_close();
+				exit(0);
 			}
-			printf("There are some trouble when receive some response : %s \n",strerror(errno));
+			LOG_ERROR("There are some trouble when receive some response : %s ",strerror(errno));
 		}
 
-		printf("Client message length : %zd\n", receved_message);
-		printf("Client message : \n%s\n------\n", client_message);
+		http_request_t req; 
 
-		// TODO Make sure that all methode blocked if there are not a bear token valide
+		int parse_result = http_parse_request(client_message,(int)receved_message, &req);
 
-		// TODO Verification of the authorization 
-		
-		// TODO Treat the client in a Thread according to the methode of his command
+		if(parse_result == -1){
+			LOG_ERROR("400 Bad Request");
 
-		verify_token(client_accepted);
+			int serverSendRespond = http_response(client_accepted, 400, "{\"error\":\"Bad Request\"}");
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				close(client_accepted);
+				continue;
+			}
 
-		// Use the sprintf() to create the respond with all informations we have
-		char *string = "hello";
-		size_t string_len = strlen(string);
-		char client_response[BUFFER_SIZE];
-		sprintf(client_response, "HTTP/1.1 200 ok\r\nContent-Type: text/plain\r\nConnection: close\r\nContent-Length: %ld\r\n\r\n%s", string_len, string);
-
-		ssize_t server_send_respond = send( client_accepted, client_response, strlen(client_response), 0);
-		if(server_send_respond == -1){
-			printf("The respond fail to be sended: %s \n", strerror(errno));
+			if(close(client_accepted) == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				continue;
+			}
+			continue;
 		}
-		printf("\nResponse : \n Send: %zd \nbytes: \n%s\n------\n", server_send_respond, client_response);
 
+		int http_code = router_dispatch(client_accepted, &req);
 
-		printf("Close the IPv4 socket after to treat the client command!\n");
+		LOG_DEBUG("Close the IPv4 socket after to treat the client command!");
 		int close_client_accepted_socket = close(client_accepted);
 		if(close_client_accepted_socket == -1){
-			printf("The close of the IPv4 socket failed: %s \n", strerror(errno));
-			exit(6);
+			LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+			exit(-1);
 		}
 			
-		printf("The IPv4 socket for ID client is successefuly closed\n");
+		LOG_DEBUG("The IPv4 socket for ID client is successefuly closed");
 	}
 
-	printf("Close the socket!\n");
+	LOG_INFO("Close the socket!");
 	int close_socket = close(server_socket_fd);
 	if(close_socket == -1){
-		printf("The close socket failed: %s \n", strerror(errno));
-		exit(7);
+		LOG_ERROR("The close socket failed: %s ", strerror(errno));
+		exit(-1);
 	}
 		
-	printf("The server end life\n");
+	LOG_INFO("The server end life\n");
+
+	log_close();
 
 	return 0;
 }
