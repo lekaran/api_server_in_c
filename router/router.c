@@ -47,5 +47,3 @@ int router_dispatch(int client_fd, http_request_t *req){
     
     return http_code;
 }
-
-

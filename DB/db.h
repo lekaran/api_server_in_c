@@ -6,7 +6,7 @@
 /**
  * Fonction qui va permetre au handler de se connecter à la base de donnée
  */
-MYSQL *db_connect();
+MYSQL *db_connect(void);
 
 /**
  * Fonction qui exécute une requete dans la base de donnée
