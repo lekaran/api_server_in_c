@@ -155,7 +155,7 @@ int main(int argc, char *argv[]) {
 		LOG_INFO("The cliend ID : %s, is successefuly connected.", uuid_str);
 
 		char client_message[BUFFER_SIZE];
-		ssize_t receved_message = recv(client_accepted, client_message, BUFFER_SIZE, 0);
+		ssize_t receved_message = recv(client_accepted, client_message, BUFFER_SIZE-1, 0);
 		if(receved_message == -1){
 			if(errno == EINTR && should_quit == 1){
 				LOG_INFO("Receve a signal (Ctrl+C) then close the socket!");
@@ -169,6 +169,7 @@ int main(int argc, char *argv[]) {
 			}
 			LOG_ERROR("There are some trouble when receive some response : %s ",strerror(errno));
 		}
+		client_message[receved_message]='\0';
 
 		http_request_t req; 
 
