@@ -18,14 +18,14 @@ add_executable(api_server
   router/router.c
   DB/db.c
   handler/register.c
+  password/password.c
 )
-
-set(ENV{PKG_CONFIG_PATH} "/opt/homebrew/opt/mysql-client/lib/pkgconfig:/opt/homebrew/Cellar/cjson/1.7.19/lib/pkgconfig")
 
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(MYSQLCLIENT REQUIRED mysqlclient)
 pkg_check_modules(CJSON REQUIRED libcjson)
+pkg_check_modules(LIBSODIUM REQUIRED libsodium)
 
 target_include_directories(api_server PRIVATE ${MYSQLCLIENT_INCLUDE_DIRS})
 target_link_directories(api_server PRIVATE ${MYSQLCLIENT_LIBRARY_DIRS})
@@ -34,6 +34,15 @@ target_link_libraries(api_server PRIVATE ${MYSQLCLIENT_LIBRARIES})
 target_include_directories(api_server PRIVATE ${CJSON_INCLUDE_DIRS})
 target_link_directories(api_server PRIVATE ${CJSON_LIBRARY_DIRS})
 target_link_libraries(api_server PRIVATE ${CJSON_LIBRARIES})
+
+target_include_directories(api_server PRIVATE ${LIBSODIUM_INCLUDE_DIRS})
+target_link_directories(api_server PRIVATE ${LIBSODIUM_LIBRARY_DIRS})
+target_link_libraries(api_server PRIVATE ${LIBSODIUM_LIBRARIES})
+
+find_library(UUID_LIB uuid)
+if(UUID_LIB)
+  target_link_libraries(api_server PRIVATE ${UUID_LIB})
+endif()
 
 target_compile_options(api_server
   PRIVATE -Wall -Wextra -pedantic -g -O2

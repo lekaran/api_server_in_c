@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <stdbool.h>
 #include <uuid/uuid.h>
+#include <sodium.h>
 
 // My module
 #include "main.h"
@@ -19,6 +20,7 @@
 #include "logger/logger.h"
 #include "http/http_parser.h"
 #include "http/http_response.h"
+#include "DB/db.h"
 
 // Hundler of the Signal SIGINT
 void handleSIGINT(int sig) {
@@ -29,10 +31,22 @@ int main(int argc, char *argv[]) {
 
 	log_init(LOG_LEVEL_DEBUG, "/var/log/api_c.log");
 
+	if(sodium_init() == -1){
+        LOG_ERROR("There is a problem during the sodium init");
+        return -1;
+    }
+
 	LOG_DEBUG("Load the env variables : ");
 	int load_env = load_env_file("../.env"); // the file isn't in the same directory that dotenv module.
 	if(load_env != 0){
 		LOG_ERROR("There is problem when the program try to load the env file!");
+		exit(-1);
+	}
+
+	//make a healthchek to the database
+	int db_hc = db_healthcheck();
+	if (db_hc != 0) {
+		LOG_ERROR("The server can't connect to the Database");
 		exit(-1);
 	}
 

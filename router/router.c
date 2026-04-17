@@ -1,15 +1,15 @@
 #include "router.h"
 #include "../http/http_response.h"
 #include "../logger/logger.h"
+#include "../handler/register.h"
 
 #include <string.h>
-
 
 #define ROUTE_COUNT 6
 
 // table de routes
 static route_t route_tables[] = {
-    {.methode = "POST", .path = "/register", .handler = NULL, .is_protected = 0},
+    {.methode = "POST", .path = "/register", .handler = register_handler, .is_protected = 0},
     {.methode = "POST", .path = "/login", .handler = NULL, .is_protected = 0},
     {.methode = "POST", .path = "/logout", .handler = NULL, .is_protected = 1},
     {.methode = "GET", .path = "/profile", .handler = NULL, .is_protected = 1},
@@ -26,6 +26,7 @@ int router_dispatch(int client_fd, http_request_t *req){
             }
             if(route_tables[i].handler != NULL){
                 http_code = route_tables[i].handler(client_fd, req);
+                http_response(client_fd, http_code, "");
             }else{
                 http_response(client_fd, 501, "{\"error\":\"Not Implemented\"}");
                 http_code = 501;
