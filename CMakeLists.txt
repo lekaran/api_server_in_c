@@ -10,6 +10,7 @@ project(API LANGUAGES C)
 
 add_executable(api_server
   main.c
+  server/server.c
   dotenv/dotenv.c
   middleware/auth.c
   logger/logger.c

@@ -3,7 +3,9 @@
 
 #include "../http/http_parser.h"
 
-typedef int(*handler_func_t)(int client_fd, http_request_t *req); // standard du handler que le router doit utiliser.
+#include <string.h>
+
+typedef int(*handler_func_t)(http_request_t *req, char *body_out, size_t body_out_size); // standard du handler que le router doit utiliser.
 
 typedef struct {
     char methode[HTTP_MAX_METHOD];

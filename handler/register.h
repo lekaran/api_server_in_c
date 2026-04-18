@@ -3,6 +3,8 @@
 
 #include "../http/http_parser.h"
 
-int register_handler(int client_fd, http_request_t *req);
+#include <string.h>
+
+int register_handler(http_request_t *req, char *body_out, size_t body_out_size);
 
 #endif

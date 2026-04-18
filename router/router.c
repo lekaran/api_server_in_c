@@ -6,6 +6,7 @@
 #include <string.h>
 
 #define ROUTE_COUNT 6
+#define BODY_MAX 512
 
 // table de routes
 static route_t route_tables[] = {
@@ -25,8 +26,9 @@ int router_dispatch(int client_fd, http_request_t *req){
                 // TODO : Vérifier le token (middleware auth)
             }
             if(route_tables[i].handler != NULL){
-                http_code = route_tables[i].handler(client_fd, req);
-                http_response(client_fd, http_code, "");
+                char body[BODY_MAX]="";
+                http_code = route_tables[i].handler(req, body, sizeof(body));
+                http_response(client_fd, http_code, body);
             }else{
                 http_response(client_fd, 501, "{\"error\":\"Not Implemented\"}");
                 http_code = 501;
