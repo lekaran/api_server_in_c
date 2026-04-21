@@ -1,7 +1,7 @@
 #include "register.h"
 #include "../logger/logger.h"
 #include "../models/user.h"
-#include "../password/password.h"
+#include "../utils/password.h"
 #include "../DB/db.h"
 
 #include <string.h>

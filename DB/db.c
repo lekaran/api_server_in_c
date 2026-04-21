@@ -15,10 +15,16 @@ int db_healthcheck(void){
     }
 
     const char *db_host=getenv("DB_HOST");
+    if(db_host == NULL){ LOG_ERROR("DB_HOST NOT SET"); return -1;}
     const char *db_user=getenv("DB_USER");
+    if(db_user == NULL){ LOG_ERROR("DB_USER NOT SET"); return -1;}
     const char *db_password=getenv("DB_PASSWORD");
+    if(db_password == NULL){ LOG_ERROR("DB_PASSWORD NOT SET"); return -1;}
     const char *db_name=getenv("DB_NAME");
-	const unsigned int db_port=atoi(getenv("DB_PORT"));
+    if(db_name == NULL){ LOG_ERROR("DB_NAME NOT SET"); return -1;}
+    const char *db_port_tmp=getenv("DB_PORT");
+	if(db_port_tmp == NULL){ LOG_ERROR("DB_PORT NOT SET"); return -1;}
+	const unsigned int db_port=atoi(db_port_tmp);
 
     MYSQL *conn = mysql_real_connect(conn_init, db_host, db_user, db_password, db_name, db_port, NULL, 0);
     if(conn == NULL){
@@ -49,10 +55,16 @@ MYSQL *db_connect(void){
     }
 
     const char *db_host=getenv("DB_HOST");
+    if(db_host == NULL){ LOG_ERROR("DB_HOST NOT SET"); exit(-1);}
     const char *db_user=getenv("DB_USER");
+    if(db_user == NULL){ LOG_ERROR("DB_USER NOT SET"); exit(-1);}
     const char *db_password=getenv("DB_PASSWORD");
+    if(db_password == NULL){ LOG_ERROR("DB_PASSWORD NOT SET"); exit(-1);}
     const char *db_name=getenv("DB_NAME");
-	const unsigned int db_port=atoi(getenv("DB_PORT"));
+    if(db_name == NULL){ LOG_ERROR("DB_NAME NOT SET"); exit(-1);}
+    const char *db_port_tmp=getenv("DB_PORT");
+	if(db_port_tmp == NULL){ LOG_ERROR("DB_PORT NOT SET"); exit(-1);}
+	const unsigned int db_port=atoi(db_port_tmp);
 
     /*
      * mysql_real_connect(handle, host, user, password, database, port, unix_socket, client_flag)

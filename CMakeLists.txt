@@ -15,11 +15,13 @@ add_executable(api_server
   middleware/auth.c
   logger/logger.c
   http/http_parser.c
-  http/http_response.c
+  http/http_response_builder.c
   router/router.c
   DB/db.c
   handler/register.c
-  password/password.c
+  handler/login.c
+  utils/password.c
+  utils/token.c
 )
 
 find_package(PkgConfig REQUIRED)

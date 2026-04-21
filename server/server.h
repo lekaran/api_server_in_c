@@ -1,7 +1,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#define BUFFER_SIZE	1024
+#define BUFFER_SIZE	8192
 
 /**
  * Fonction qui initie le server
