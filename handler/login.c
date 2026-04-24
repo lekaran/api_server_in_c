@@ -11,11 +11,12 @@
 
 // Default Modules
 #include <string.h>
+#include <ctype.h>
 
 static char dummy_hash[PASSWORD_HASH_MAX];
 
 int login_init(void){
-    char *pwd_fact = "aF9@kL2#zP!x7Qw$M8vR^tY1&cD*eS0uHj\%GmN4bC(5)Xy+Z=V?lW3rA-6pTqU:;dO,I.<o>{}[]/|\~`E9hKfJ2!sB@7n#8g$P\%Q^R&*y(1)z+M=V?L:;C,A.<Xo>{}[]/|\~`kD3eS0uHj\%GmN4bC5XyZlW3rA6pTqUOIfJ2!sB7n8gPQR";
+    char *pwd_fact = "aF9@kL2#zP!x7Qw$M8vR^tY1&cD*eS0uHjGmN4bC(5)Xy+Z=V?lW3rA-6pTqU:;dO,I.<o>{}[]/|`E9hKfJ2!sB@7n#8g$PQ^R&*y(1)z+M=V?L:;C,A.<Xo>{}[]/|kD3eS0uHjGmN4bC5XyZlW3rA6pTqUOIfJ2!sB7n8gPQR";
     int hash_result = crypto_pwhash_str(dummy_hash, pwd_fact, strlen(pwd_fact), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE);
     if(hash_result != 0){
         LOG_ERROR("There is a problem during the password hash");
@@ -47,10 +48,22 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
         return 400;
-    }else if (strlen(uName) > USERNAME_MAX-1){
+    }else if (strlen(uName) > USERNAME_MAX-1){ // check the length of the username 
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username too long\"}");
         return 400;
+    }
+
+    //check if the username contains null byte
+    const char *ptr = uName;
+
+    while (*ptr){
+        if((isalnum((unsigned char)*ptr) == 0 && (unsigned char)*ptr != '-' && (unsigned char)*ptr != '_')){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Username contains bad characters\"}");
+            return 400;
+        }
+        ptr++;
     }
 
     cJSON *password=cJSON_GetObjectItem(body_json, "password");
@@ -63,6 +76,10 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     if(pwd == NULL){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Password must be a string\"}");
+        return 400;
+    }else if (strlen(pwd) > PASSWORD_HASH_MAX-1){ // check the length of the PASSWORD
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Password too long\"}");
         return 400;
     }
 
@@ -103,12 +120,20 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     //ouvrir une connexion avec la base de donnée
     MYSQL *conn = db_connect();
+    if(conn == NULL){
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
+        //vider la mémoire du mots de passe 
+        sodium_memzero(pwd_buff, sizeof(pwd_buff));
+        return 500;
+    }
 
     //execute the query 
     MYSQL_STMT *select_resutl = db_select(conn, query, params, params_count, results, results_count);
     if(select_resutl == NULL){
         snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
         db_close(conn);
+        //vider la mémoire du mots de passe 
+        sodium_memzero(pwd_buff, sizeof(pwd_buff));
         return 500;
     }
 
@@ -125,6 +150,8 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
             LOG_WARN("mysql_stmt_close failed");
         }
         db_close(conn);
+        //vider la mémoire du mots de passe 
+        sodium_memzero(pwd_buff, sizeof(pwd_buff));
         return 401;
     }else if (result_fetch != 0){
         snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
@@ -133,6 +160,8 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
             LOG_WARN("mysql_stmt_close failed");
         }
         db_close(conn);
+        //vider la mémoire du mots de passe 
+        sodium_memzero(pwd_buff, sizeof(pwd_buff));
         return 500;
     }
 
@@ -145,8 +174,13 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
             LOG_WARN("mysql_stmt_close failed");
         }
         db_close(conn);
+        //vider la mémoire du mots de passe 
+        sodium_memzero(pwd_buff, sizeof(pwd_buff));
         return 401;
     }
+
+    //vider la mémoire du mots de passe 
+    sodium_memzero(pwd_buff, sizeof(pwd_buff));
 
     //Générer un token aléatoire sécurisé (32 bytes -> 64 chars hex)
     //The randombytes_buf() function fills size bytes starting at buf with an unpredictable sequence of bytes.

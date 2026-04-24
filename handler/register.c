@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <uuid/uuid.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #include <cjson/cJSON.h>
 
@@ -39,12 +40,24 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
         return 400;
-    }else if (strlen(uName) > USERNAME_MAX-1){
+    }else if (strlen(uName) > USERNAME_MAX-1){// check the length of the username 
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username too long\"}");
         return 400;
     }
 
+    //check if the username contains null byte
+    const char *ptr = uName;
+
+    while (*ptr){
+        if((isalnum((unsigned char)*ptr) == 0 && (unsigned char)*ptr != '-' && (unsigned char)*ptr != '_')){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Username contains bad characters\"}");
+            return 400;
+        }
+        ptr++;
+    }
+    
     strncpy(register_user.username, uName, USERNAME_MAX-1);
 
     cJSON *first_name=cJSON_GetObjectItem(body_json, "first_name");
@@ -58,7 +71,24 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"First name must be a string\"}");
         return 400;
+    }else if (strlen(fn) > FIRST_NAME_MAX-1){ // check the length of the first name
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"First name too long\"}");
+        return 400;
     }
+
+    //check if the first name contains null byte
+    const char *fn_ptr = fn;
+
+    while (*fn_ptr){
+        if(!isalpha((unsigned char)*fn_ptr) && (unsigned char)*fn_ptr != ' ' && (unsigned char)*fn_ptr != '-' && (unsigned char)*fn_ptr != '\'' && (unsigned char)*fn_ptr < 0x80){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"First name contains bad characters\"}");
+            return 400;
+        }
+        fn_ptr++;
+    }
+
     strncpy(register_user.first_name,fn, FIRST_NAME_MAX-1);
 
     cJSON *last_name=cJSON_GetObjectItem(body_json, "last_name");
@@ -72,7 +102,24 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Last name must be a string\"}");
         return 400;
+    }else if (strlen(ln) > LAST_NAME_MAX-1){ // check the length of the last name
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Last name too long\"}");
+        return 400;
     }
+
+    //check if the last name contains bad characters
+    const char *ln_ptr = ln;
+
+    while (*ln_ptr){
+        if(!isalpha((unsigned char)*ln_ptr) && (unsigned char)*ln_ptr != ' ' && (unsigned char)*ln_ptr != '-' && (unsigned char)*ln_ptr != '\'' && (unsigned char)*ln_ptr < 0x80){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Last name contains bad characters\"}");
+            return 400;
+        }
+        ln_ptr++;
+    }
+
     strncpy(register_user.last_name, ln, LAST_NAME_MAX-1);  
 
     cJSON *password=cJSON_GetObjectItem(body_json, "password");
@@ -86,7 +133,12 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Password must be a string\"}");
         return 400;
+    }else if (strlen(pwd) > PASSWORD_HASH_MAX-1){ // check the length of the PASSWORD
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Password too long\"}");
+        return 400;
     }
+
     int hash_res = hash_password(pwd, register_user.password_hash, PASSWORD_HASH_MAX);
     if(hash_res != 0){
         cJSON_Delete(body_json);
@@ -124,6 +176,10 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     //ouvrir une connexion avec la base de donnée
     MYSQL *conn = db_connect();
+    if(conn == NULL){
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
+        return 500;
+    }
 
     //Comme on fait un POST /register (INSERT)
     //envoyer la requete à la base de donnée DONC c'est un DML
