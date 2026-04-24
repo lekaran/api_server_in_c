@@ -35,11 +35,16 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
         return 400;
     }
     const char *uName = cJSON_GetStringValue(username);
-    if(uName == NULL){
+    if(uName == NULL) {
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
         return 400;
+    }else if (strlen(uName) > USERNAME_MAX-1){
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Username too long\"}");
+        return 400;
     }
+
     strncpy(register_user.username, uName, USERNAME_MAX-1);
 
     cJSON *first_name=cJSON_GetObjectItem(body_json, "first_name");

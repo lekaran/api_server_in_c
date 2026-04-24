@@ -12,6 +12,18 @@
 // Default Modules
 #include <string.h>
 
+static char dummy_hash[PASSWORD_HASH_MAX];
+
+int login_init(void){
+    char *pwd_fact = "aF9@kL2#zP!x7Qw$M8vR^tY1&cD*eS0uHj\%GmN4bC(5)Xy+Z=V?lW3rA-6pTqU:;dO,I.<o>{}[]/|\~`E9hKfJ2!sB@7n#8g$P\%Q^R&*y(1)z+M=V?L:;C,A.<Xo>{}[]/|\~`kD3eS0uHj\%GmN4bC5XyZlW3rA6pTqUOIfJ2!sB7n8gPQR";
+    int hash_result = crypto_pwhash_str(dummy_hash, pwd_fact, strlen(pwd_fact), crypto_pwhash_OPSLIMIT_INTERACTIVE, crypto_pwhash_MEMLIMIT_INTERACTIVE);
+    if(hash_result != 0){
+        LOG_ERROR("There is a problem during the password hash");
+        return -1;
+    }
+    return 0;
+}
+
 int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     char username_buff[USERNAME_MAX];
@@ -34,6 +46,10 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     if(uName == NULL){
         cJSON_Delete(body_json);
         snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
+        return 400;
+    }else if (strlen(uName) > USERNAME_MAX-1){
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Username too long\"}");
         return 400;
     }
 
@@ -100,6 +116,9 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     int result_fetch = mysql_stmt_fetch(select_resutl);
     // récupérer password_hash qui vient de la BD
     if(result_fetch == MYSQL_NO_DATA){
+        
+        crypto_pwhash_str_verify(dummy_hash, pwd_buff, strlen(pwd_buff));
+        
         snprintf(body_out, body_out_size, "{\"error\":\"Invalid credentials\"}");
         int result_close = mysql_stmt_close(select_resutl);
         if (result_close != 0){

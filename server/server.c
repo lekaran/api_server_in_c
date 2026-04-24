@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <uuid/uuid.h>
 #include <sodium.h>
+#include <sys/time.h>
 
 // My module
 #include "server.h"
@@ -20,6 +21,7 @@
 #include "../http/http_parser.h"
 #include "../http/http_response_builder.h"
 #include "../DB/db.h"
+#include "../handler/login.h"
 
 // Global Variables 
 static int server_socket_fd;
@@ -120,6 +122,9 @@ int server_init(void){
 		return -1;
 	}
 
+	//init the dummy pwd
+	if (login_init() != 0){ return -1;}
+
 	if (create_server_socket() != 0){ return -1;}
 	if (setup_signals() != 0){ return -1;}
 
@@ -140,6 +145,16 @@ int server_run(void){
 
 	LOG_INFO("Enter in the infinit loop for clients connection");
 	while (true){
+		// Lecture des headers
+		char client_message[BUFFER_SIZE];
+		int total_recu=0;
+		int scip_client=0;
+
+		//déclaration d'une durée de 5 secondes
+		struct timeval time_out;
+		time_out.tv_sec = 5;
+		time_out.tv_usec = 0;
+
 		LOG_DEBUG("Waiting for a client to connect on the port : %d ", server_port);
 		client_accepted = accept(server_socket_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if(client_accepted == -1){
@@ -151,15 +166,25 @@ int server_run(void){
 			return -1;
 		}
 
+		//Préparation du timeout sur le socket client
+		//configurer la protection au time out
+		int time_out_sock = setsockopt(client_accepted, SOL_SOCKET, SO_RCVTIMEO, &time_out, sizeof(time_out));
+		if(time_out_sock == -1){
+			LOG_ERROR("Set sock opt have error : %s ", strerror(errno));
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				continue;
+			}
+			continue;
+		}
+
 		// Generate a random UID for each client 
 		uuid_generate_random(uuid);
 		uuid_unparse_lower(uuid, uuid_str);
 
 		LOG_INFO("The cliend ID : %s, is successefuly connected.", uuid_str);
 
-		char client_message[BUFFER_SIZE];
-		int total_recu=0;
-		int scip_client=0;
 		do{
 			ssize_t nb_octets_recus = recv(client_accepted, client_message+total_recu, BUFFER_SIZE-total_recu-1, 0);
 			if(nb_octets_recus == -1){
@@ -240,6 +265,42 @@ int server_run(void){
 			content_length = strtol(header_content, &endptrContent, 10);
 		}
 
+		//Vérification Content-Length
+		if(content_length > MAX_BODY_SIZE){
+			LOG_ERROR("The Content-length are to big!");
+			http_response_builder_t response_content_len_big;
+			char *body_content_len_big = "{\"error\":\"Bad Request\"}";
+			char body_content_len[16];
+			snprintf(body_content_len, sizeof(body_content_len), "%zu", strlen(body_content_len_big));
+			init_http_response_builder(&response_content_len_big, 400);
+
+			//add headers
+			add_header_http_response_builder(&response_content_len_big, "Content-Type", "application/json");
+			add_header_http_response_builder(&response_content_len_big, "Content-Length", body_content_len);
+			
+			//send response
+			int serverSendRespond = send_http_response(client_accepted, &response_content_len_big, body_content_len_big);
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				int close_client_accepted_socket = close(client_accepted);
+				if(close_client_accepted_socket == -1){
+					LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+					scip_client=1;
+					continue;
+				}
+				scip_client=1;
+				continue;
+			}
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				continue;
+			}
+			scip_client=1;
+			continue;
+		}
+
 		char *header_end = strstr(client_message, "\r\n\r\n");
 		//  header_end est un pointeur dans le buffer
 
@@ -250,6 +311,7 @@ int server_run(void){
 		int body_deja_recu = total_recu - body_offset;
 		int bytes_restants = content_length - body_deja_recu;
 
+		//Lecture du body
 		if (bytes_restants > 0){
 			do{
 				ssize_t nb_octets_recus = recv(client_accepted, client_message+total_recu, BUFFER_SIZE-total_recu-1, 0);

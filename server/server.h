@@ -2,6 +2,7 @@
 #define SERVER_H
 
 #define BUFFER_SIZE	8192
+#define MAX_BODY_SIZE 65536
 
 /**
  * Fonction qui initie le server
