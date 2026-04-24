@@ -72,7 +72,7 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     //créer un tableau de 2 MYSQL_BIND resultat, parce qu'il y a 2 colonnes dans le tableau du résultat.
     char user_id[37]={0};
-    char pwd_hashed[256]={0};
+    char pwd_hashed[PASSWORD_HASH_MAX]={0};
 
     int results_count = 2;
     MYSQL_BIND results[results_count];
