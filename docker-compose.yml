@@ -1,0 +1,36 @@
+name: api_db
+
+services:
+  db:
+    image: mysql:8.0.45
+    container_name: db
+    environment:
+      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
+      - MYSQL_USER=${DB_USER}
+      - MYSQL_PASSWORD=${DB_PASSWORD}
+    ports:
+      - 3306:3306
+    volumes:
+      - api_db_volume:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 30s
+      retries: 5
+      start_period: 30s
+  flyway:
+    depends_on:
+      db:
+        condition: service_healthy
+    image: flyway/flyway:12.3.0
+    command: migrate
+    environment:
+      - FLYWAY_URL=jdbc:mysql://db:3306/${DB_NAME}?allowPublicKeyRetrieval=true&useSSL=false
+      - FLYWAY_USER=${DB_USER}
+      - FLYWAY_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./DB/migrations:/flyway/sql
+
+volumes:
+  api_db_volume:
