@@ -7,17 +7,17 @@
 #include <string.h>
 #include <stdio.h>
 
-#define ROUTE_COUNT 6
+#define ROUTE_COUNT 2 //nombre de route
 #define BODY_MAX 512
 
 // table de routes
 static route_t route_tables[] = {
     {.methode = "POST", .path = "/register", .handler = register_handler, .is_protected = 0},
-    {.methode = "POST", .path = "/login", .handler = login_handler, .is_protected = 0},
-    {.methode = "POST", .path = "/logout", .handler = NULL, .is_protected = 1},
-    {.methode = "GET", .path = "/profile", .handler = NULL, .is_protected = 1},
-    {.methode = "PUT", .path = "/profile", .handler = NULL, .is_protected = 1},
-    {.methode = "DELETE", .path = "/profile", .handler = NULL, .is_protected = 1}
+    {.methode = "POST", .path = "/login", .handler = login_handler, .is_protected = 0}
+    //{.methode = "POST", .path = "/logout", .handler = NULL, .is_protected = 1},
+    //{.methode = "GET", .path = "/profile", .handler = NULL, .is_protected = 1},
+    //{.methode = "PUT", .path = "/profile", .handler = NULL, .is_protected = 1},
+    //{.methode = "DELETE", .path = "/profile", .handler = NULL, .is_protected = 1}
 };
 
 int router_dispatch(int client_fd, http_request_t *req){

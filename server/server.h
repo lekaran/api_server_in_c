@@ -1,8 +1,9 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#define BUFFER_SIZE	8192
-#define MAX_BODY_SIZE 65536
+#define BUFFER_SIZE	16384
+#define HTTP_HEADERS_MAX 2048
+#define MAX_BODY_SIZE (BUFFER_SIZE-HTTP_HEADERS_MAX-4)
 
 /**
  * Fonction qui initie le server

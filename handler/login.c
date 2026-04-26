@@ -25,7 +25,28 @@ int login_init(void){
     return 0;
 }
 
+static int validate_field(const char *whiteList[], size_t whiteListLen, const char *field){
+
+    for (size_t i = 0; i < whiteListLen; i++){
+        if(strcmp(whiteList[i], field) == 0){
+            return 0;
+        }
+    }
+    
+    return -1;
+}
+
 int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
+    
+    //TODO Vérification des headers que le client envoie.
+
+    //Chercher dans tous le body les caractères spéciaux
+    for (size_t i = 0; i < req->body_len; i++){
+        if (req->body[i] == '\0'){
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+    }
 
     char username_buff[USERNAME_MAX];
     char pwd_buff[PASSWORD_HASH_MAX];
@@ -37,20 +58,33 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
         return 400;
     }
 
+    //le body json aura tous les champs
+    //vérifivier le body json
+    cJSON *field = NULL;
+    const char *whiteList[] = {"username", "password"};
+    size_t whiteListLen = 2;
+    cJSON_ArrayForEach(field, body_json){
+        if(validate_field(whiteList, whiteListLen, field->string) != 0){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+    }
+
     cJSON *username=cJSON_GetObjectItem(body_json, "username");
     if(username == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Username is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
     const char *uName = cJSON_GetStringValue(username);
     if(uName == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }else if (strlen(uName) > USERNAME_MAX-1){ // check the length of the username 
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Username too long\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
 
@@ -60,7 +94,7 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     while (*ptr){
         if((isalnum((unsigned char)*ptr) == 0 && (unsigned char)*ptr != '-' && (unsigned char)*ptr != '_')){
             cJSON_Delete(body_json);
-            snprintf(body_out, body_out_size, "{\"error\":\"Username contains bad characters\"}");
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
             return 400;
         }
         ptr++;
@@ -69,22 +103,27 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     cJSON *password=cJSON_GetObjectItem(body_json, "password");
     if(password == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
     const char *pwd = cJSON_GetStringValue(password);
     if(pwd == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }else if (strlen(pwd) > PASSWORD_HASH_MAX-1){ // check the length of the PASSWORD
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password too long\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
 
     strncpy(username_buff, uName, USERNAME_MAX-1);
     username_buff[USERNAME_MAX-1]='\0';
+    //normaliser username avant de l'injecter dans la base de donnée. 
+    size_t user_len = strlen(username_buff);
+    for (size_t i = 0; i < user_len; i++){
+        username_buff[i] = tolower((unsigned char)username_buff[i]);
+    }
 
     strncpy(pwd_buff, pwd, PASSWORD_HASH_MAX-1);
     pwd_buff[PASSWORD_HASH_MAX-1]='\0';
@@ -199,7 +238,7 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     char token_hash[crypto_hash_sha256_BYTES * 2 + 1];
     int token_hash_res = hash_token(token_bytes , sizeof(token_bytes), token_hash, crypto_hash_sha256_BYTES * 2 + 1);
     if(token_hash_res != 0){
-        snprintf(body_out, body_out_size, "{\"error\":\"Token hashing failed\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
         db_close(conn);
         return 500;
     }
