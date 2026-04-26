@@ -19,6 +19,25 @@ services:
       timeout: 30s
       retries: 5
       start_period: 30s
+  cache:
+    image: redis:8.6.2
+    container_name: cache
+    environment:
+      - REDIS_ROOT_PASSWORD=${REDIS_ROOT_PASSWORD}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - REDIS_USER=${REDIS_USER}
+    ports:
+      - 6379:6379
+    volumes:
+      - api_cache_volume:/data
+      - ./cache/redis_init.sh:/usr/local/bin/init-redis.sh
+    command: ["sh", "/usr/local/bin/init-redis.sh"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_ROOT_PASSWORD}","ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
   flyway:
     depends_on:
       db:
@@ -34,3 +53,4 @@ services:
 
 volumes:
   api_db_volume:
+  api_cache_volume:
