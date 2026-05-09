@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <uuid/uuid.h>
 #include <sodium.h>
+#include <sys/time.h>
+#include <hiredis/hiredis.h>
 
 // My module
 #include "server.h"
@@ -20,6 +22,9 @@
 #include "../http/http_parser.h"
 #include "../http/http_response_builder.h"
 #include "../DB/db.h"
+#include "../handler/login.h"
+#include "../cache/cache.h"
+#include "../cache/rate_limit.h"
 
 // Global Variables 
 static int server_socket_fd;
@@ -120,6 +125,16 @@ int server_init(void){
 		return -1;
 	}
 
+	//make a healthchek to the Redis Cache
+	int cc_hc = cache_healthcheck();
+	if (cc_hc != 0) {
+		LOG_ERROR("The server can't connect to the Redis Cache");
+		return -1;
+	}
+
+	//init the dummy pwd
+	if (login_init() != 0){ return -1;}
+
 	if (create_server_socket() != 0){ return -1;}
 	if (setup_signals() != 0){ return -1;}
 
@@ -140,6 +155,16 @@ int server_run(void){
 
 	LOG_INFO("Enter in the infinit loop for clients connection");
 	while (true){
+		// Lecture des headers
+		char client_message[BUFFER_SIZE];
+		int total_recu=0;
+		int scip_client=0;
+
+		//déclaration d'une durée de 5 secondes
+		struct timeval time_out;
+		time_out.tv_sec = 5;
+		time_out.tv_usec = 0;
+
 		LOG_DEBUG("Waiting for a client to connect on the port : %d ", server_port);
 		client_accepted = accept(server_socket_fd, (struct sockaddr *)&client_addr, &client_addr_len);
 		if(client_accepted == -1){
@@ -151,15 +176,40 @@ int server_run(void){
 			return -1;
 		}
 
+		//récupérer l'ip du client 
+		char client_ip[INET_ADDRSTRLEN];
+
+		const char *clientIpRes = inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+		if(clientIpRes == NULL){
+			LOG_ERROR("Can't retrieve the Client IP");
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				continue;
+			}
+			continue;
+		}
+
+		//Préparation du timeout sur le socket client
+		//configurer la protection au time out
+		int time_out_sock = setsockopt(client_accepted, SOL_SOCKET, SO_RCVTIMEO, &time_out, sizeof(time_out));
+		if(time_out_sock == -1){
+			LOG_ERROR("Set sock opt have error : %s ", strerror(errno));
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				continue;
+			}
+			continue;
+		}
+
 		// Generate a random UID for each client 
 		uuid_generate_random(uuid);
 		uuid_unparse_lower(uuid, uuid_str);
 
 		LOG_INFO("The cliend ID : %s, is successefuly connected.", uuid_str);
 
-		char client_message[BUFFER_SIZE];
-		int total_recu=0;
-		int scip_client=0;
+		//boucle des headers
 		do{
 			ssize_t nb_octets_recus = recv(client_accepted, client_message+total_recu, BUFFER_SIZE-total_recu-1, 0);
 			if(nb_octets_recus == -1){
@@ -230,7 +280,7 @@ int server_run(void){
 
 		//lire la valeur du header Content-Length
 		ssize_t content_length;
-		char *header_content = strstr(client_message, "Content-Length:");
+		char *header_content = strcasestr(client_message, "Content-Length:");// INSENSIBLE À LA CASSE
 		if(header_content == NULL){
 			content_length = 0;  // pas de body
 		}else{
@@ -240,6 +290,42 @@ int server_run(void){
 			content_length = strtol(header_content, &endptrContent, 10);
 		}
 
+		//Vérification Content-Length
+		if((content_length < 0) || (content_length > MAX_BODY_SIZE)){
+			LOG_ERROR("The Content-length are to big!");
+			http_response_builder_t response_content_len_big;
+			char *body_content_len_big = "{\"error\":\"Bad Request\"}";
+			char body_content_len[16];
+			snprintf(body_content_len, sizeof(body_content_len), "%zu", strlen(body_content_len_big));
+			init_http_response_builder(&response_content_len_big, 400);
+
+			//add headers
+			add_header_http_response_builder(&response_content_len_big, "Content-Type", "application/json");
+			add_header_http_response_builder(&response_content_len_big, "Content-Length", body_content_len);
+			
+			//send response
+			int serverSendRespond = send_http_response(client_accepted, &response_content_len_big, body_content_len_big);
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				int close_client_accepted_socket = close(client_accepted);
+				if(close_client_accepted_socket == -1){
+					LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+					scip_client=1;
+					continue;
+				}
+				scip_client=1;
+				continue;
+			}
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				continue;
+			}
+			scip_client=1;
+			continue;
+		}
+
 		char *header_end = strstr(client_message, "\r\n\r\n");
 		//  header_end est un pointeur dans le buffer
 
@@ -247,9 +333,48 @@ int server_run(void){
 		//  soustraction de 2 pointeurs = nombre d'octets entre eux
 		//  + 4 pour sauter les 4 chars de "\r\n\r\n"
 
+		//check si la taille annoncer peut rentrer dans le buffer
+		int available_for_body = BUFFER_SIZE-body_offset-1;
+		
+		if(content_length > available_for_body){
+			LOG_ERROR("The Content-length can't feet into the buffer!");
+			http_response_builder_t response_content_len_big;
+			char *body_content_len_big = "{\"error\":\"Bad Request\"}";
+			char body_content_len[16];
+			snprintf(body_content_len, sizeof(body_content_len), "%zu", strlen(body_content_len_big));
+			init_http_response_builder(&response_content_len_big, 400);
+
+			//add headers
+			add_header_http_response_builder(&response_content_len_big, "Content-Type", "application/json");
+			add_header_http_response_builder(&response_content_len_big, "Content-Length", body_content_len);
+			
+			//send response
+			int serverSendRespond = send_http_response(client_accepted, &response_content_len_big, body_content_len_big);
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				int close_client_accepted_socket = close(client_accepted);
+				if(close_client_accepted_socket == -1){
+					LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+					scip_client=1;
+					continue;
+				}
+				scip_client=1;
+				continue;
+			}
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				continue;
+			}
+			scip_client=1;
+			continue;
+		}
+
 		int body_deja_recu = total_recu - body_offset;
 		int bytes_restants = content_length - body_deja_recu;
 
+		//Lecture du body
 		if (bytes_restants > 0){
 			do{
 				ssize_t nb_octets_recus = recv(client_accepted, client_message+total_recu, BUFFER_SIZE-total_recu-1, 0);
@@ -286,7 +411,6 @@ int server_run(void){
 		http_request_t req; 
 
 		int parse_result = http_parse_request(client_message,(int)total_recu, &req);
-
 		if(parse_result == -1){
 			LOG_ERROR("400 Bad Request");
 
@@ -315,6 +439,68 @@ int server_run(void){
 			continue;
 		}
 
+		// rate_limite 
+		//recupérer la route 
+
+		//ouvrir la connexion avec Redis Cache
+		redisContext *cc_conn = cache_connect();
+		if(cc_conn == NULL){
+			LOG_ERROR("The connection to the Cache Redis fail!");
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				continue;
+			}
+			scip_client=1;
+			continue;
+		}
+		
+		//appelé rate_limite()
+		int rate = rate_limit_check(cc_conn, req.path, client_ip);
+		if(rate == 1){
+			LOG_ERROR("The client is block!");
+			http_response_builder_t response_content_len_big;
+			char *body_content_len_big = "{\"error\":\"too_many_requests\",\"message\":\"Rate limit exceeded\",\"retry_after\":\"30\"}";
+			char body_content_len[16];
+			snprintf(body_content_len, sizeof(body_content_len), "%zu", strlen(body_content_len_big));
+			init_http_response_builder(&response_content_len_big, 429);
+
+			//add headers
+			add_header_http_response_builder(&response_content_len_big, "Content-Type", "application/json");
+			add_header_http_response_builder(&response_content_len_big, "Content-Length", body_content_len);
+			
+			//send response
+			int serverSendRespond = send_http_response(client_accepted, &response_content_len_big, body_content_len_big);
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				int close_client_accepted_socket = close(client_accepted);
+				if(close_client_accepted_socket == -1){
+					LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+					scip_client=1;
+					cache_close(cc_conn);
+					continue;
+				}
+				scip_client=1;
+				cache_close(cc_conn);
+				continue;
+			}
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				cache_close(cc_conn);
+				continue;
+			}
+			scip_client=1;
+			cache_close(cc_conn);
+			continue;
+		}
+
+		//fermé la connexion avec Redis Cache
+		cache_close(cc_conn);
+
+		//find the way
 		router_dispatch(client_accepted, &req);
 
 		LOG_DEBUG("Close the IPv4 socket after to treat the client command!");

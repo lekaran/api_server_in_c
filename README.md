@@ -3,7 +3,7 @@ This is a repo to build an API Server in C
 
 # Pre requisite 
 you have to install :<br>
-cmake, pkg-config and mysql-client :<br>
+cmake, pkg-config, mysql-client, libsodium and libuuid :<br>
 for macOs user :<br>
 ```brew install cmake pkg-config mysql-client```
 
@@ -11,8 +11,6 @@ for linux user :<br>
 ```apt install cmake pkg-config libmysqlclient-dev```
 
 You also need to install ```docker``` and ```docker compose``` for launching the DB.<br>
-
-
 
 # Build the project
 Create a directory name ```build/``` on the project root<br>

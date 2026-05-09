@@ -8,18 +8,117 @@
 #include <stdlib.h>
 #include <uuid/uuid.h>
 #include <stdio.h>
+#include <ctype.h>
 
 #include <cjson/cJSON.h>
 
-int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
+static int validate_password(const char *pwd, const char *username){
+    // check the length of the password
+    if (strlen(pwd) > PASSWORD_HASH_MAX-1){
+        return -1;
+    }
 
-    //create a user instance
+    //si le mot de passe est inférieure à 8,
+    //si le mot de passe est la même que usernanme
+    if ((strlen(pwd) < 8) || (strcmp(pwd, username) == 0)){
+        return -1;
+    }
+
+    //Si le mot de passe contient des espaces
+    const char *space_ptr = pwd;
+
+    while (*space_ptr){
+        if(isspace((unsigned char)*space_ptr) != 0){
+            return -1;
+        }
+        space_ptr++;
+    }
+
+    //Au moins un caractère est minuscule dans le mots de passe.
+    const char *lower_ptr = pwd;
+    size_t lower_count = 0;
+    while (*lower_ptr){
+        if(islower((unsigned char)*lower_ptr) != 0){
+            lower_count++;
+        }
+        lower_ptr++;
+    }
+    if(lower_count < 1){
+        return -1;
+    }
+
+    //Au moins un caractère est majuscule dans le mots de passe.
+    const char *upper_ptr = pwd;
+    size_t upper_count = 0;
+    while (*upper_ptr){
+        if(isupper((unsigned char)*upper_ptr) != 0){
+            upper_count++;
+        }
+        upper_ptr++;
+    }
+    if(upper_count < 1){
+        return -1;
+    }
+
+    //Au moins un caractère est un digit dans le mots de passe.
+    const char *digit_ptr = pwd;
+    size_t digit_count = 0;
+    while (*digit_ptr){
+        if(isdigit((unsigned char)*digit_ptr) != 0){
+            digit_count++;
+        }
+        digit_ptr++;
+    }
+    if(digit_count < 1){
+        return -1;
+    }
+
+    return 0;
+}
+
+static int validate_field(const char *whiteList[], size_t whiteListLen, const char *field){
+
+    for (size_t i = 0; i < whiteListLen; i++){
+        if(strcmp(whiteList[i], field) == 0){
+            return 0;
+        }
+    }
+    
+    return -1;
+}
+
+int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
+    //TODO Vérification des headers que le client envoie.
+    
+    //Chercher dans tous le body les caractères spéciaux
+    for (size_t i = 0; i < req->body_len; i++){
+        if (req->body[i] == '\0'){
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+    }
+
+    //pars the body
     cJSON *body_json = cJSON_Parse(req->body);
     if(body_json == NULL){
         snprintf(body_out, body_out_size, "{\"error\":\"Invalid JSON body\"}");
         return 400;
     }
+    
+    //le body json aura tous les champs
+    //vérifivier le body json
+    cJSON *field = NULL;
+    const char *whiteList[] = {"username", "first_name", "last_name", "password"};
+    size_t whiteListLen = 4;
+    cJSON_ArrayForEach(field, body_json){
+        if(validate_field(whiteList, whiteListLen, field->string) != 0){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+    }
 
+    //créer une instance d'user
     user_t register_user={0};
 
     uuid_t uuser_id;
@@ -31,61 +130,125 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
     cJSON *username=cJSON_GetObjectItem(body_json, "username");
     if(username == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Username is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
     const char *uName = cJSON_GetStringValue(username);
-    if(uName == NULL){
+    if(uName == NULL) {
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Username must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+        return 400;
+    }else if (strlen(uName) > USERNAME_MAX-1){// check the length of the username 
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
-    strncpy(register_user.username, uName, USERNAME_MAX-1);
 
+    //check if the username contains null byte
+    const char *ptr = uName;
+
+    while (*ptr){
+        if((isalnum((unsigned char)*ptr) == 0 && (unsigned char)*ptr != '-' && (unsigned char)*ptr != '_')){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+        ptr++;
+    }
+
+    strncpy(register_user.username, uName, USERNAME_MAX-1);
+    //normaliser username avant de l'injecter dans la base de donnée. 
+    size_t user_len = strlen(register_user.username);
+    for (size_t i = 0; i < user_len; i++){
+        register_user.username[i] = tolower((unsigned char)register_user.username[i]);
+    }
+    
     cJSON *first_name=cJSON_GetObjectItem(body_json, "first_name");
     if(first_name == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"First name is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
     const char *fn = cJSON_GetStringValue(first_name);
     if(fn == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"First name must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+        return 400;
+    }else if (strlen(fn) > FIRST_NAME_MAX-1){ // check the length of the first name
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
+
+    //check if the first name contains null byte
+    const char *fn_ptr = fn;
+
+    while (*fn_ptr){
+        if(!isalpha((unsigned char)*fn_ptr) && (unsigned char)*fn_ptr != ' ' && (unsigned char)*fn_ptr != '-' && (unsigned char)*fn_ptr != '\'' && (unsigned char)*fn_ptr < 0x80){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+        fn_ptr++;
+    }
+
     strncpy(register_user.first_name,fn, FIRST_NAME_MAX-1);
 
     cJSON *last_name=cJSON_GetObjectItem(body_json, "last_name");
     if(last_name == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Last name is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
     const char *ln = cJSON_GetStringValue(last_name);
     if(ln == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Last name must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+        return 400;
+    }else if (strlen(ln) > LAST_NAME_MAX-1){ // check the length of the last name
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
+
+    //check if the last name contains bad characters
+    const char *ln_ptr = ln;
+
+    while (*ln_ptr){
+        if(!isalpha((unsigned char)*ln_ptr) && (unsigned char)*ln_ptr != ' ' && (unsigned char)*ln_ptr != '-' && (unsigned char)*ln_ptr != '\'' && (unsigned char)*ln_ptr < 0x80){
+            cJSON_Delete(body_json);
+            snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+            return 400;
+        }
+        ln_ptr++;
+    }
+
     strncpy(register_user.last_name, ln, LAST_NAME_MAX-1);  
 
     cJSON *password=cJSON_GetObjectItem(body_json, "password");
     if(password == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password is required\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
+
     const char *pwd = cJSON_GetStringValue(password);
     if(pwd == NULL){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password must be a string\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
         return 400;
     }
+    
+    if (validate_password(pwd, uName) == -1){ // password vérification
+        cJSON_Delete(body_json);
+        snprintf(body_out, body_out_size, "{\"error\":\"Invalid request\"}");
+        return 400;
+    }
+
     int hash_res = hash_password(pwd, register_user.password_hash, PASSWORD_HASH_MAX);
     if(hash_res != 0){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"Password hashing failed\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
         return 500;
     }
 
@@ -119,6 +282,10 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     //ouvrir une connexion avec la base de donnée
     MYSQL *conn = db_connect();
+    if(conn == NULL){
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
+        return 500;
+    }
 
     //Comme on fait un POST /register (INSERT)
     //envoyer la requete à la base de donnée DONC c'est un DML
@@ -135,11 +302,11 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
             return 409;
         case 1048: 
             cJSON_Delete(body_json);
-            snprintf(body_out, body_out_size, "{\"error\":\"Missing required field\"}");
+            snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
             return 400;
         case 1452: 
             cJSON_Delete(body_json);
-            snprintf(body_out, body_out_size, "{\"error\":\"Invalid reference\"}");
+            snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
             return 400;
         default: 
             cJSON_Delete(body_json);
@@ -150,7 +317,7 @@ int register_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     if(insert == 0){
         cJSON_Delete(body_json);
-        snprintf(body_out, body_out_size, "{\"error\":\"No rows affected\"}");
+        snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
         return 500;
     }
 

@@ -98,6 +98,14 @@ int init_http_response_builder(http_response_builder_t *http_response, int http_
     //init the http_response with 0 value
     memset(http_response->headers, 0, sizeof(http_response->headers));
 
+    //ajout des headers de sécurité
+    add_header_http_response_builder(http_response, "X-Frame-Options", "DENY");
+    add_header_http_response_builder(http_response, "X-Content-Type-Options", "nosniff");
+    add_header_http_response_builder(http_response, "Content-Security-Policy", "default-src 'none'");
+    add_header_http_response_builder(http_response, "Cache-Control", "no-store");
+    add_header_http_response_builder(http_response, "Referrer-Policy", "no-referrer");
+    add_header_http_response_builder(http_response, "X-XSS-Protection", "0");
+
     return 0;
 }
 
