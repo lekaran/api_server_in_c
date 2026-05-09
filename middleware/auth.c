@@ -13,21 +13,26 @@
 int auth_verify(const http_request_t *req, char *user_id, size_t user_id_len){
 
     //extraire le token des headers
-    char *header_token = http_get_header(req, "Authorization"); //la veleur est Bearer adagg...
+    const char *header_token = http_get_header(req, "Authorization"); //la veleur est Bearer adagg...
     if(header_token == NULL){
         LOG_WARN("The token not founded on the headers");
         return -1;
     }
-    char *token_prefix = "Bearer ";
 
-    char *token_pos = strstr(header_token, token_prefix);
-    if(token_pos == NULL){
+    int res_test_token = strncmp(header_token, "Bearer ", strlen("Bearer "));
+    if(res_test_token != 0){
         LOG_WARN("The token not founded");
         return -1;
     }
 
     //token extrait
-    const char *token = token_pos+strlen(token_prefix);
+    const char *token = header_token+strlen("Bearer ");
+
+    //vérifier le token, longueur?
+    if(strlen(token) != 64){
+        LOG_WARN("Bad token format");
+        return -1;
+    }
 
     //hash the token avant de l'inserer dans la base de donnée.
     char token_hash[crypto_hash_sha256_BYTES * 2 + 1]={0};

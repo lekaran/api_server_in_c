@@ -10,7 +10,7 @@
 #include <stdio.h>
 
 #define ROUTE_COUNT 2 //nombre de route
-#define BODY_MAX 512
+#define BODY_MAX 1024
 
 // table de routes
 static route_t route_tables[] = {
@@ -29,8 +29,10 @@ int router_dispatch(int client_fd, http_request_t *req){
             
             if(route_tables[i].is_protected){// routes protected
 
+                //Vérification du token de l'utilisateur
                 char user_id[ID_MAX]="";
-                if(auth_verify(req, user_id, ID_MAX) == -1){
+                int res_authent = auth_verify(req, user_id, ID_MAX);
+                if(res_authent == -1){
                     LOG_WARN("The user try to connect");
                     http_response_builder_t response_not_implemented;
                     char *body = "{\"error\":\"Unauthorized\"}";
@@ -50,27 +52,30 @@ int router_dispatch(int client_fd, http_request_t *req){
                     }
 
                     http_code = 401;
-                }else{
-                    LOG_INFO("The user %s connected", user_id);
-                    char body[BODY_MAX]="";
-                    http_code = route_tables[i].handler(req, body, sizeof(body));
-
-                    http_response_builder_t response_protected;
-                    char body_len_protected[16];
-                    snprintf(body_len_protected, sizeof(body_len_protected), "%zu", strlen(body));
-                    init_http_response_builder(&response_protected, http_code);
-
-                    //add headers
-                    add_header_http_response_builder(&response_protected, "Content-Type", "application/json");
-                    add_header_http_response_builder(&response_protected, "Content-Length", body_len_protected);
-                    
-                    //send response
-                    int serverSendRespond = send_http_response(client_fd, &response_protected, body);
-                    if(serverSendRespond == -1){
-                        LOG_ERROR("Error during send response for %d code", http_code);
-                        return http_code;
-                    }
+                    return http_code;
                 }
+
+                //l'utilisateur est vérifié
+                LOG_INFO("The user %s connected", user_id);
+                char body[BODY_MAX]="";
+                http_code = route_tables[i].handler(req, body, sizeof(body));
+
+                http_response_builder_t response_protected;
+                char body_len_protected[16];
+                snprintf(body_len_protected, sizeof(body_len_protected), "%zu", strlen(body));
+                init_http_response_builder(&response_protected, http_code);
+
+                //add headers
+                add_header_http_response_builder(&response_protected, "Content-Type", "application/json");
+                add_header_http_response_builder(&response_protected, "Content-Length", body_len_protected);
+                
+                //send response
+                int serverSendRespond = send_http_response(client_fd, &response_protected, body);
+                if(serverSendRespond == -1){
+                    LOG_ERROR("Error during send response for %d code", http_code);
+                    return http_code;
+                }
+                
 
             }else{ // routes unprotected
                 
