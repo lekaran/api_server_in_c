@@ -4,6 +4,9 @@
 #include <string.h>
 #include <sodium.h>
 
+/**
+ * Fonction qui hash un token 
+ */
 int hash_token(const char *token_bytes, size_t token_bytes_len, char *out, size_t out_len){
     
     if(out_len < crypto_hash_sha256_BYTES*2+1){

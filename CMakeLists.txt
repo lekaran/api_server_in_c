@@ -22,6 +22,8 @@ add_executable(api_server
   handler/login.c
   utils/password.c
   utils/token.c
+  cache/cache.c
+  cache/rate_limit.c
 )
 
 find_package(PkgConfig REQUIRED)
@@ -29,6 +31,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(MYSQLCLIENT REQUIRED mysqlclient)
 pkg_check_modules(CJSON REQUIRED libcjson)
 pkg_check_modules(LIBSODIUM REQUIRED libsodium)
+pkg_check_modules(HIREDIS REQUIRED hiredis)
 
 target_include_directories(api_server PRIVATE ${MYSQLCLIENT_INCLUDE_DIRS})
 target_link_directories(api_server PRIVATE ${MYSQLCLIENT_LIBRARY_DIRS})
@@ -41,6 +44,10 @@ target_link_libraries(api_server PRIVATE ${CJSON_LIBRARIES})
 target_include_directories(api_server PRIVATE ${LIBSODIUM_INCLUDE_DIRS})
 target_link_directories(api_server PRIVATE ${LIBSODIUM_LIBRARY_DIRS})
 target_link_libraries(api_server PRIVATE ${LIBSODIUM_LIBRARIES})
+
+target_include_directories(api_server PRIVATE ${HIREDIS_INCLUDE_DIRS})
+target_link_directories(api_server PRIVATE ${HIREDIS_LIBRARY_DIRS})
+target_link_libraries(api_server PRIVATE ${HIREDIS_LIBRARIES})
 
 find_library(UUID_LIB uuid)
 if(UUID_LIB)

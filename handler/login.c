@@ -234,7 +234,7 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     char token_hex[65]={0};
     sodium_bin2hex(token_hex, sizeof(token_hex), token_bytes, sizeof(token_bytes));
 
-    //hash the token avant de l'inserer dans la base de doonée.
+    //hash the token avant de l'inserer dans la base de donnée.
     char token_hash[crypto_hash_sha256_BYTES * 2 + 1];
     int token_hash_res = hash_token(token_bytes , sizeof(token_bytes), token_hash, crypto_hash_sha256_BYTES * 2 + 1);
     if(token_hash_res != 0){
@@ -281,5 +281,5 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
 
     snprintf(body_out, body_out_size, "{\"token\":\"%s\"}",token_hex);
     sodium_memzero(token_bytes, sizeof(token_bytes));
-    return 201;
+    return 200;
 }

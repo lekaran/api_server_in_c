@@ -11,6 +11,7 @@
 #include <uuid/uuid.h>
 #include <sodium.h>
 #include <sys/time.h>
+#include <hiredis/hiredis.h>
 
 // My module
 #include "server.h"
@@ -22,6 +23,8 @@
 #include "../http/http_response_builder.h"
 #include "../DB/db.h"
 #include "../handler/login.h"
+#include "../cache/cache.h"
+#include "../cache/rate_limit.h"
 
 // Global Variables 
 static int server_socket_fd;
@@ -122,6 +125,13 @@ int server_init(void){
 		return -1;
 	}
 
+	//make a healthchek to the Redis Cache
+	int cc_hc = cache_healthcheck();
+	if (cc_hc != 0) {
+		LOG_ERROR("The server can't connect to the Redis Cache");
+		return -1;
+	}
+
 	//init the dummy pwd
 	if (login_init() != 0){ return -1;}
 
@@ -164,6 +174,20 @@ int server_run(void){
 			}
 			LOG_ERROR("The ID client cannot be connected: %s ", strerror(errno));
 			return -1;
+		}
+
+		//récupérer l'ip du client 
+		char client_ip[INET_ADDRSTRLEN];
+
+		const char *clientIpRes = inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+		if(clientIpRes == NULL){
+			LOG_ERROR("Can't retrieve the Client IP");
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				continue;
+			}
+			continue;
 		}
 
 		//Préparation du timeout sur le socket client
@@ -415,6 +439,68 @@ int server_run(void){
 			continue;
 		}
 
+		// rate_limite 
+		//recupérer la route 
+
+		//ouvrir la connexion avec Redis Cache
+		redisContext *cc_conn = cache_connect();
+		if(cc_conn == NULL){
+			LOG_ERROR("The connection to the Cache Redis fail!");
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				continue;
+			}
+			scip_client=1;
+			continue;
+		}
+		
+		//appelé rate_limite()
+		int rate = rate_limit_check(cc_conn, req.path, client_ip);
+		if(rate == 1){
+			LOG_ERROR("The client is block!");
+			http_response_builder_t response_content_len_big;
+			char *body_content_len_big = "{\"error\":\"too_many_requests\",\"message\":\"Rate limit exceeded\",\"retry_after\":\"30\"}";
+			char body_content_len[16];
+			snprintf(body_content_len, sizeof(body_content_len), "%zu", strlen(body_content_len_big));
+			init_http_response_builder(&response_content_len_big, 429);
+
+			//add headers
+			add_header_http_response_builder(&response_content_len_big, "Content-Type", "application/json");
+			add_header_http_response_builder(&response_content_len_big, "Content-Length", body_content_len);
+			
+			//send response
+			int serverSendRespond = send_http_response(client_accepted, &response_content_len_big, body_content_len_big);
+			if(serverSendRespond == -1){
+				LOG_ERROR("The respond fail to be sended: %s ", strerror(errno));
+				int close_client_accepted_socket = close(client_accepted);
+				if(close_client_accepted_socket == -1){
+					LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+					scip_client=1;
+					cache_close(cc_conn);
+					continue;
+				}
+				scip_client=1;
+				cache_close(cc_conn);
+				continue;
+			}
+			int close_client_accepted_socket = close(client_accepted);
+			if(close_client_accepted_socket == -1){
+				LOG_ERROR("The close of the IPv4 socket failed: %s ", strerror(errno));
+				scip_client=1;
+				cache_close(cc_conn);
+				continue;
+			}
+			scip_client=1;
+			cache_close(cc_conn);
+			continue;
+		}
+
+		//fermé la connexion avec Redis Cache
+		cache_close(cc_conn);
+
+		//find the way
 		router_dispatch(client_accepted, &req);
 
 		LOG_DEBUG("Close the IPv4 socket after to treat the client command!");
