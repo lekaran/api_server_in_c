@@ -18,9 +18,10 @@ add_executable(api_server
   http/http_response_builder.c
   router/router.c
   DB/db.c
-  handler/register.c
   handler/login.c
   handler/logout.c
+  handler/profile.c
+  handler/register.c
   utils/password.c
   utils/token.c
   cache/cache.c
