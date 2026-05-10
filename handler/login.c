@@ -233,15 +233,21 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
      */
     char token_hex[65]={0};
     sodium_bin2hex(token_hex, sizeof(token_hex), token_bytes, sizeof(token_bytes));
+    // liberer token_bytes
+    sodium_memzero(token_bytes, sizeof(token_bytes));
 
+    LOG_INFO("Login token : %s",token_hex);
+    
     //hash the token avant de l'inserer dans la base de donnée.
     char token_hash[crypto_hash_sha256_BYTES * 2 + 1];
-    int token_hash_res = hash_token(token_bytes , sizeof(token_bytes), token_hash, crypto_hash_sha256_BYTES * 2 + 1);
+    int token_hash_res = hash_token(token_hex , strlen(token_hex), token_hash, crypto_hash_sha256_BYTES * 2 + 1);
     if(token_hash_res != 0){
         snprintf(body_out, body_out_size, "{\"error\":\"Database error\"}");
         db_close(conn);
         return 500;
     }
+
+    LOG_INFO("Login token hashed : %s",token_hash);
 
     // INSERT INTO token (user_id, token)
     //construire la requete
@@ -280,6 +286,5 @@ int login_handler(http_request_t *req, char *body_out, size_t body_out_size){
     db_close(conn);
 
     snprintf(body_out, body_out_size, "{\"token\":\"%s\"}",token_hex);
-    sodium_memzero(token_bytes, sizeof(token_bytes));
     return 200;
 }
