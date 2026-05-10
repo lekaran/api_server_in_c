@@ -1,6 +1,8 @@
 #ifndef HTTP_PARSER_H
 #define HTTP_PARSER_H
 
+#include "../models/user.h"
+
 // Limites de taille pour chaque champ.
 // Suffisantes pour une API REST classique.
 #define HTTP_MAX_METHOD    16
@@ -26,6 +28,7 @@ typedef struct {
     int  header_count;
     const char *body;   // pointeur dans le buffer original — ne pas free()
     int  body_len;
+    char user_id[ID_MAX];
 } http_request_t;
 
 // Parse une requête HTTP brute (buf, len) dans la structure req.

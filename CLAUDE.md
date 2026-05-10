@@ -46,6 +46,7 @@ All tests are shell scripts using `curl`. Run them from the repo root while the 
 bash tests/test_login.sh
 bash tests/test_register.sh
 bash tests/test_logout.sh
+bash tests/test_profile.sh
 ```
 
 Security audit test suites are prefixed `test_bb_` (black-box) and `test_gb_` (grey-box).
@@ -76,6 +77,7 @@ accept() → recv() headers → parse Content-Length → recv() body
 | `handler/register` | Registers a new user: validates input, hashes password with `crypto_pwhash_str`, inserts into `users` |
 | `handler/login` | Authenticates user: validates input whitelist, fetches `password_hash` from DB, verifies with `crypto_pwhash_str_verify`, generates 32-byte random token, stores SHA-256 hash of the **hex string** in `tokens`, returns hex token |
 | `handler/logout` | Revokes a token: re-extracts Bearer token, SHA-256 hashes the hex string, `DELETE FROM tokens WHERE token_hash=?`. Returns 401 if token not found (already revoked), 200 on success |
+| `handler/profile` | Returns the authenticated user's profile: reads `user_id` from `req->user_id` (set by router after `auth_verify`), `SELECT id, username, first_name, last_name, created_at, updated_at FROM users WHERE id=?`, returns JSON. Password hash is never included in the response |
 | `DB/` | MySQL wrapper: `db_connect`, `db_execute` (INSERT/UPDATE/DELETE), `db_select` (returns open `MYSQL_STMT*` for the caller to fetch), `db_close` |
 | `cache/` | Redis wrapper: `cache_healthcheck`, `cache_connect` (with AUTH), `cache_execute`, `cache_close` |
 | `cache/rate_limit` | GCRA (Generic Cell Rate Algorithm) rate limiting via a Lua script executed atomically in Redis. Key format: `rl:<path>:<client_ip>`. Limits: 5 burst, 30s TTL |
@@ -91,6 +93,7 @@ accept() → recv() headers → parse Content-Length → recv() body
 - **Token hashing consistency**: both `login` and `auth_verify`/`logout` hash the **hex string** representation of the token (64 chars), not the raw bytes. This must remain consistent.
 - **Timing attack mitigation**: when a username is not found, `crypto_pwhash_str_verify` is still called on a pre-computed `dummy_hash` to prevent timing-based user enumeration.
 - **Bearer prefix validation**: `auth_verify` uses `strncmp` (not `strstr`) to check the `Authorization` header starts with `"Bearer "`, preventing prefix-bypass attacks.
+- **user_id propagation**: after `auth_verify` succeeds, the router copies `user_id` into `req->user_id` (field added to `http_request_t`). Protected handlers read it directly from `req->user_id` — no need to re-parse the token.
 - All DB queries use prepared statements (`MYSQL_BIND`) — no string interpolation.
 - Request body and header sizes are capped (`BUFFER_SIZE`, `MAX_BODY_SIZE`) before reading.
 - Rate limiting applied per `(route, client_ip)` before routing, using an atomic Redis Lua script.
@@ -103,7 +106,7 @@ accept() → recv() headers → parse Content-Length → recv() body
 | `POST` | `/register` | No | `register_handler` | ✅ Done |
 | `POST` | `/login` | No | `login_handler` | ✅ Done |
 | `POST` | `/logout` | Yes | `logout_handler` | ✅ Done |
-| `GET` | `/profile` | Yes | — | 🚧 À faire |
+| `GET` | `/profile` | Yes | `get_profile_handler` | ✅ Done |
 | `PUT` | `/profile` | Yes | — | 🚧 À faire |
 | `DELETE` | `/profile` | Yes | — | 🚧 À faire |
 

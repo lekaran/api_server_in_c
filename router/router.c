@@ -4,21 +4,22 @@
 #include "../handler/register.h"
 #include "../handler/login.h"
 #include "../handler/logout.h"
+#include "../handler/profile.h"
 #include "../middleware/auth.h"
 #include "../models/user.h"
 
 #include <string.h>
 #include <stdio.h>
 
-#define ROUTE_COUNT 3 //nombre de route
+#define ROUTE_COUNT 4 //nombre de route
 #define BODY_MAX 1024
 
 // table de routes
 static route_t route_tables[] = {
     {.methode = "POST", .path = "/register", .handler = register_handler, .is_protected = 0},
     {.methode = "POST", .path = "/login", .handler = login_handler, .is_protected = 0},
-    {.methode = "POST", .path = "/logout", .handler = logout_handler, .is_protected = 1}
-    //{.methode = "GET", .path = "/profile", .handler = NULL, .is_protected = 1},
+    {.methode = "POST", .path = "/logout", .handler = logout_handler, .is_protected = 1},
+    {.methode = "GET", .path = "/profile", .handler = get_profile_handler, .is_protected = 1}
     //{.methode = "PUT", .path = "/profile", .handler = NULL, .is_protected = 1},
     //{.methode = "DELETE", .path = "/profile", .handler = NULL, .is_protected = 1}
 };
@@ -55,6 +56,9 @@ int router_dispatch(int client_fd, http_request_t *req){
                     http_code = 401;
                     return http_code;
                 }
+
+                // mettre l'user_id dans la variable req
+                strncpy(req->user_id, user_id, ID_MAX-1);
 
                 //l'utilisateur est vérifié
                 LOG_INFO("The user %s connected", user_id);
