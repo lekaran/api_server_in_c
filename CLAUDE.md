@@ -45,9 +45,12 @@ All tests are shell scripts using `curl`. Run them from the repo root while the 
 ```bash
 bash tests/test_login.sh
 bash tests/test_register.sh
+bash tests/test_logout.sh
 ```
 
 Security audit test suites are prefixed `test_bb_` (black-box) and `test_gb_` (grey-box).
+
+> **Note** : the GCRA rate limiter (burst=5, TTL=30s) applies to all routes. Test suites that hit the same route more than 5 times in quick succession will receive 429. Wait 30s between runs or between test groups that target the same route.
 
 ## Architecture
 
@@ -69,9 +72,10 @@ accept() → recv() headers → parse Content-Length → recv() body
 | `server/` | Socket lifecycle (`init`/`run`/`shutdown`), main accept loop, header + body reading, Content-Length validation |
 | `http/` | Raw buffer → `http_request_t` struct (`http_parser`), building HTTP response with headers (`http_response_builder`) |
 | `router/` | Static route table (`route_t[]`). Matches method+path, calls auth middleware for protected routes, calls handler, sends response |
-| `middleware/auth` | Extracts `Bearer` token from `Authorization` header, SHA-256 hashes it, looks it up in MySQL `tokens` table |
+| `middleware/auth` | Extracts `Bearer` token from `Authorization` header via `strncmp` prefix check, validates length (64 hex chars), SHA-256 hashes it, looks it up in MySQL `tokens` table with expiry check |
 | `handler/register` | Registers a new user: validates input, hashes password with `crypto_pwhash_str`, inserts into `users` |
-| `handler/login` | Authenticates user: validates input whitelist, fetches `password_hash` from DB, verifies with `crypto_pwhash_str_verify`, generates 32-byte random token, stores its SHA-256 hash in `tokens`, returns hex token |
+| `handler/login` | Authenticates user: validates input whitelist, fetches `password_hash` from DB, verifies with `crypto_pwhash_str_verify`, generates 32-byte random token, stores SHA-256 hash of the **hex string** in `tokens`, returns hex token |
+| `handler/logout` | Revokes a token: re-extracts Bearer token, SHA-256 hashes the hex string, `DELETE FROM tokens WHERE token_hash=?`. Returns 401 if token not found (already revoked), 200 on success |
 | `DB/` | MySQL wrapper: `db_connect`, `db_execute` (INSERT/UPDATE/DELETE), `db_select` (returns open `MYSQL_STMT*` for the caller to fetch), `db_close` |
 | `cache/` | Redis wrapper: `cache_healthcheck`, `cache_connect` (with AUTH), `cache_execute`, `cache_close` |
 | `cache/rate_limit` | GCRA (Generic Cell Rate Algorithm) rate limiting via a Lua script executed atomically in Redis. Key format: `rl:<path>:<client_ip>`. Limits: 5 burst, 30s TTL |
@@ -84,13 +88,29 @@ accept() → recv() headers → parse Content-Length → recv() body
 
 - Passwords hashed with `crypto_pwhash_str` (Argon2id). Sensitive buffers zeroed with `sodium_memzero` after use.
 - Tokens stored as SHA-256 hex hashes in the `tokens` table, never in plaintext. Token expiry checked server-side via `expired_at > NOW()`.
+- **Token hashing consistency**: both `login` and `auth_verify`/`logout` hash the **hex string** representation of the token (64 chars), not the raw bytes. This must remain consistent.
 - **Timing attack mitigation**: when a username is not found, `crypto_pwhash_str_verify` is still called on a pre-computed `dummy_hash` to prevent timing-based user enumeration.
+- **Bearer prefix validation**: `auth_verify` uses `strncmp` (not `strstr`) to check the `Authorization` header starts with `"Bearer "`, preventing prefix-bypass attacks.
 - All DB queries use prepared statements (`MYSQL_BIND`) — no string interpolation.
 - Request body and header sizes are capped (`BUFFER_SIZE`, `MAX_BODY_SIZE`) before reading.
 - Rate limiting applied per `(route, client_ip)` before routing, using an atomic Redis Lua script.
+- Protected routes (`is_protected=1`): `auth_verify` runs before the handler. All auth errors (missing header, bad format, unknown token) return 401 — the handler's own validation is a defensive second layer, never publicly visible for auth failures.
+
+### Route table
+
+| Method | Path | Protected | Handler | Status |
+|---|---|---|---|---|
+| `POST` | `/register` | No | `register_handler` | ✅ Done |
+| `POST` | `/login` | No | `login_handler` | ✅ Done |
+| `POST` | `/logout` | Yes | `logout_handler` | ✅ Done |
+| `GET` | `/profile` | Yes | — | 🚧 À faire |
+| `PUT` | `/profile` | Yes | — | 🚧 À faire |
+| `DELETE` | `/profile` | Yes | — | 🚧 À faire |
 
 ### Adding a new route
 
 1. Write a handler in `handler/` with signature `int my_handler(http_request_t *req, char *body_out, size_t body_out_size)` returning an HTTP status code.
 2. Add the handler `.c` file to `CMakeLists.txt` `add_executable(...)`.
 3. Add an entry to `route_tables[]` in `router/router.c` and increment `ROUTE_COUNT`.
+
+> **Note** : `BODY_MAX` in `router.c` is set to 1024. The largest expected response body (GET /profile with all fields) peaks at ~414 bytes. Increase if new routes return larger payloads.

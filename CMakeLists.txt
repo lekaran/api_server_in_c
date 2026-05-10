@@ -20,6 +20,7 @@ add_executable(api_server
   DB/db.c
   handler/register.c
   handler/login.c
+  handler/logout.c
   utils/password.c
   utils/token.c
   cache/cache.c

@@ -28,6 +28,8 @@ int auth_verify(const http_request_t *req, char *user_id, size_t user_id_len){
     //token extrait
     const char *token = header_token+strlen("Bearer ");
 
+    LOG_INFO("auth token : %s",token);
+
     //vérifier le token, longueur?
     if(strlen(token) != 64){
         LOG_WARN("Bad token format");
@@ -41,6 +43,8 @@ int auth_verify(const http_request_t *req, char *user_id, size_t user_id_len){
         LOG_WARN("Can't hash the token");
         return -1;
     }
+
+    LOG_INFO("Login token hashed : %s",token_hash);
 
     //SELECT TO MYSQL to retreive the User ID and User Hashed Password
     //construire la requete
